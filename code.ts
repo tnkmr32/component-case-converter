@@ -1,54 +1,5 @@
 /// <reference types="@figma/plugin-typings" />
 
-// このプラグインはページ内のコンポーネントセットとバリアント情報を一覧表示します
-
-// キャメルケースか判定する関数
-function isCamelCase(str: string): boolean {
-  return /^[a-z][a-zA-Z0-9]*$/.test(str);
-}
-
-// パスカルケースか判定する関数
-function isPascalCase(str: string): boolean {
-  return /^[A-Z][a-zA-Z0-9]*$/.test(str);
-}
-
-// ケース変換関数
-function toCamelCase(str: string): string {
-  // 既にキャメルケースの場合はそのまま返す
-  if (isCamelCase(str)) {
-    return str;
-  }
-
-  // スペース、ハイフン、アンダースコアで分割
-  const words = str.split(/[\s-_]+/);
-  if (words.length === 0) return str;
-
-  // 最初の単語は小文字、残りは先頭大文字
-  return (
-    words[0].toLowerCase() +
-    words
-      .slice(1)
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join("")
-  );
-}
-
-function toPascalCase(str: string): string {
-  // 既にパスカルケースの場合はそのまま返す
-  if (isPascalCase(str)) {
-    return str;
-  }
-
-  // スペース、ハイフン、アンダースコアで分割
-  const words = str.split(/[\s-_]+/);
-  if (words.length === 0) return str;
-
-  // すべての単語の先頭を大文字に
-  return words
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join("");
-}
-
 interface VariantValue {
   value: string;
   newValue: string;
@@ -75,8 +26,53 @@ interface ComponentInfo {
   variants?: VariantInfo[];
 }
 
-// UIを表示
-figma.showUI(__html__, { width: 500, height: 600 });
+// キャメルケースか判定する関数
+function isCamelCase(str: string): boolean {
+  return /^[a-z][a-zA-Z0-9]*$/.test(str);
+}
+
+// パスカルケースか判定する関数
+function isPascalCase(str: string): boolean {
+  return /^[A-Z][a-zA-Z0-9]*$/.test(str);
+}
+
+// キャメルケースに変換する関数
+function toCamelCase(str: string): string {
+  // 既にキャメルケースの場合はそのまま返す
+  if (isCamelCase(str)) {
+    return str;
+  }
+
+  // スペース、ハイフン、アンダースコアで分割
+  const words = str.split(/[\s-_]+/);
+  if (words.length === 0) return str;
+
+  // 最初の単語は小文字、残りは先頭大文字
+  return (
+    words[0].toLowerCase() +
+    words
+      .slice(1)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join("")
+  );
+}
+
+// パスカルケースに変換する関数
+function toPascalCase(str: string): string {
+  // 既にパスカルケースの場合はそのまま返す
+  if (isPascalCase(str)) {
+    return str;
+  }
+
+  // スペース、ハイフン、アンダースコアで分割
+  const words = str.split(/[\s-_]+/);
+  if (words.length === 0) return str;
+
+  // すべての単語の先頭を大文字に
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join("");
+}
 
 // ページ内のコンポーネントセットを取得する関数
 function getComponents(): ComponentInfo[] {
@@ -154,26 +150,70 @@ function getComponents(): ComponentInfo[] {
   return components;
 }
 
-// プラグイン起動時にコンポーネント一覧を送信
-const componentList = getComponents();
-figma.ui.postMessage({
-  type: "component-list",
-  components: componentList,
-});
+// 初期化処理を非同期で実行
+async function initialize() {
+  // documentchangeイベントを使用する前に全ページをロード
+  await figma.loadAllPagesAsync();
 
-// 選択変更を監視
-figma.on("selectionchange", () => {
-  const selection = figma.currentPage.selection;
-  if (selection.length === 1) {
-    const selectedNode = selection[0];
-    if (selectedNode.type === "COMPONENT_SET") {
+  // UIを表示（postMessageを使う前に必要）
+  figma.showUI(__html__, { width: 500, height: 600 });
+
+  // プラグイン起動時にコンポーネント一覧を送信
+  const componentList = getComponents();
+  figma.ui.postMessage({
+    type: "component-list",
+    components: componentList,
+  });
+
+  // ページ内の変更を監視
+  figma.on("documentchange", (event) => {
+    // コンポーネントセットに関連する変更があったか確認
+    let hasRelevantChange = false;
+
+    for (const change of event.documentChanges) {
+      // ノードの作成、削除を検知
+      if (change.type === "CREATE" || change.type === "DELETE") {
+        if (change.node && change.node.type === "COMPONENT_SET") {
+          hasRelevantChange = true;
+          break;
+        }
+      }
+      // プロパティの変更を検知
+      else if (change.type === "PROPERTY_CHANGE") {
+        // コンポーネントセットまたはその子コンポーネントの変更を検知
+        if (change.node) {
+          if (change.node.type === "COMPONENT_SET") {
+            hasRelevantChange = true;
+            break;
+          }
+          // 子コンポーネント（COMPONENT）の変更も検知
+          // RemovedNodeにはparentプロパティがないため、型ガードを追加
+          if (
+            change.node.type === "COMPONENT" &&
+            "parent" in change.node &&
+            change.node.parent &&
+            change.node.parent.type === "COMPONENT_SET"
+          ) {
+            hasRelevantChange = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // 関連する変更があった場合、コンポーネント一覧を更新
+    if (hasRelevantChange) {
+      const componentList = getComponents();
       figma.ui.postMessage({
-        type: "selection-changed",
-        id: selectedNode.id,
+        type: "component-list",
+        components: componentList,
       });
     }
-  }
-});
+  });
+}
+
+// 初期化を実行
+initialize();
 
 // UIからのメッセージを処理
 figma.ui.onmessage = async (msg) => {
