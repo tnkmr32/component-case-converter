@@ -1,17 +1,505 @@
-<h2>Rectangle Creator</h2>
-<p>Count: <input id="count" type="number" value="5"></p>
-<button id="create">Create</button>
-<button id="cancel">Cancel</button>
+<style>
+  body {
+    font-family:
+      "Inter",
+      -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
+    margin: 0;
+    padding: 16px;
+    font-size: 12px;
+  }
+  h2 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  button.primary {
+    background: #0066ff;
+    color: white;
+  }
+  button.primary:hover {
+    background: #0052cc;
+  }
+  button.secondary {
+    background: #f0f0f0;
+    color: #333;
+  }
+  button.secondary:hover {
+    background: #e0e0e0;
+  }
+  .component-list {
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    max-height: 450px;
+    overflow-y: auto;
+  }
+  .component-item {
+    padding: 12px;
+    border-bottom: 1px solid #e0e0e0;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .component-item:last-child {
+    border-bottom: none;
+  }
+  .component-item:hover {
+    background: #f8f8f8;
+  }
+  .component-item.selected {
+    background: #e6f2ff;
+    border-left: 3px solid #0066ff;
+    padding-left: 9px;
+  }
+  .component-name {
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .component-type {
+    color: #999;
+    font-size: 11px;
+  }
+  .variant-properties {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f0f0f0;
+  }
+  .variant-property {
+    margin-bottom: 6px;
+  }
+  .property-name {
+    font-weight: 500;
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 2px;
+  }
+  .property-values {
+    font-size: 11px;
+    color: #999;
+  }
+  .variant-count {
+    display: inline-block;
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    color: #666;
+    margin-left: 6px;
+  }
+  .rename-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 6px;
+    background: #f8f8f8;
+    border-radius: 4px;
+  }
+  .rename-label {
+    flex: 0 0 80px;
+    font-size: 10px;
+    color: #666;
+    font-weight: 500;
+  }
+  .rename-values {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+  }
+  .current-value {
+    color: #333;
+  }
+  .arrow {
+    color: #999;
+  }
+  .new-value {
+    color: #0066ff;
+    font-weight: 500;
+  }
+  .rename-btn {
+    padding: 4px 8px;
+    background: #0066ff;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 10px;
+  }
+  .rename-btn:hover {
+    background: #0052cc;
+  }
+  .rename-btn:disabled {
+    background: #e0e0e0;
+    cursor: not-allowed;
+    color: #999;
+  }
+  .rename-item.completed .new-value {
+    color: #666;
+  }
+  .rename-item.completed .arrow {
+    color: #ccc;
+  }
+  .bulk-actions {
+    position: sticky;
+    bottom: 0;
+    background: white;
+    padding: 12px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: center;
+  }
+  .bulk-rename-btn {
+    padding: 10px 24px;
+    background: #0066ff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .bulk-rename-btn:hover {
+    background: #0052cc;
+  }
+  .empty-state {
+    padding: 32px;
+    text-align: center;
+    color: #999;
+  }
+</style>
+
+<h2>コンポーネントセット一覧</h2>
+
+<div class="controls">
+  <button id="refresh" class="primary">更新</button>
+  <button id="close" class="secondary">閉じる</button>
+</div>
+
+<div id="component-list" class="component-list">
+  <div class="empty-state">読み込み中...</div>
+</div>
+
 <script>
+  // メッセージを受信
+  window.onmessage = (event) => {
+    const msg = event.data.pluginMessage;
+    if (msg.type === "component-list") {
+      displayComponents(msg.components);
+    } else if (msg.type === "selection-changed") {
+      // 選択が変更されたら対応する項目をハイライト
+      highlightComponent(msg.id);
+    }
+  };
 
-document.getElementById('create').onclick = () => {
-  const textbox = document.getElementById('count');
-  const count = parseInt(textbox.value, 10);
-  parent.postMessage({ pluginMessage: { type: 'create-shapes', count } }, '*')
-}
+  // コンポーネントをハイライト
+  function highlightComponent(componentId) {
+    document.querySelectorAll(".component-item").forEach((el) => {
+      el.classList.remove("selected");
+    });
+    const item = document.querySelector(`[data-component-id="${componentId}"]`);
+    if (item) {
+      item.classList.add("selected");
+      // スクロールして表示
+      item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }
 
-document.getElementById('cancel').onclick = () => {
-  parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*')
-}
+  // コンポーネント一覧を表示
+  function displayComponents(components) {
+    const listElement = document.getElementById("component-list");
 
+    if (components.length === 0) {
+      listElement.innerHTML =
+        '<div class="empty-state">コンポーネントセットが見つかりませんでした</div>';
+      return;
+    }
+
+    listElement.innerHTML = "";
+    components.forEach((component) => {
+      const item = document.createElement("div");
+      item.className = "component-item";
+      item.dataset.componentId = component.id;
+
+      // コンポーネントセット名の変換（code.tsから受け取った値を使用）
+      const newComponentName = component.newName;
+      const componentNameChanged = component.name !== newComponentName;
+
+      let contentHtml = `
+        <div class="component-name">
+          ${escapeHtml(component.name)}
+          ${component.variants ? `<span class="variant-count">${component.variants.length}個のバリアント</span>` : ""}
+        </div>
+      `;
+
+      // コンポーネントセット名の変換表示
+      contentHtml += `
+        <div class="rename-item ${!componentNameChanged ? "completed" : ""}">
+          <div class="rename-label">セット名</div>
+          <div class="rename-values">
+            <span class="current-value">${escapeHtml(component.name)}</span>
+            <span class="arrow">→</span>
+            <span class="new-value">${escapeHtml(newComponentName)}</span>
+          </div>
+          <button class="rename-btn" ${!componentNameChanged ? "disabled" : ""} data-action="rename-component-set" data-id="${component.id}" data-new-name="${escapeHtml(newComponentName)}">
+            ${componentNameChanged ? "変換" : "✓"}
+          </button>
+        </div>
+      `;
+
+      // コンポーネントセット名の変換表示（変換が必要な場合のみ）
+      if (componentNameChanged) {
+        contentHtml += `
+          <div class="rename-item">
+            <div class="rename-label">セット名</div>
+            <div class="rename-values">
+              <span class="current-value">${escapeHtml(component.name)}</span>
+              <span class="arrow">→</span>
+              <span class="new-value">${escapeHtml(newComponentName)}</span>
+            </div>
+            <button class="rename-btn" data-action="rename-component-set" data-id="${component.id}" data-new-name="${escapeHtml(newComponentName)}">
+              変換
+            </button>
+          </div>
+        `;
+      }
+
+      // バリアント情報を表示
+      if (component.variantProperties) {
+        contentHtml += `<div class="variant-properties">`;
+
+        component.variantProperties.forEach((prop) => {
+          // プロパティ名の変換（code.tsから受け取った値を使用）
+          const newPropName = prop.newName;
+          const propNameChanged = prop.name !== newPropName;
+
+          // プロパティ名
+          contentHtml += `
+            <div class="variant-property">
+              <div class="property-name">${escapeHtml(prop.name)}</div>
+          `;
+
+          // プロパティ名の変換
+          contentHtml += `
+            <div class="rename-item ${!propNameChanged ? "completed" : ""}">
+              <div class="rename-label">プロパティ名</div>
+              <div class="rename-values">
+                <span class="current-value">${escapeHtml(prop.name)}</span>
+                <span class="arrow">→</span>
+                <span class="new-value">${escapeHtml(newPropName)}</span>
+              </div>
+              <button class="rename-btn" ${!propNameChanged ? "disabled" : ""} data-action="rename-property" data-component-set-id="${component.id}" data-old-name="${escapeHtml(prop.name)}" data-new-name="${escapeHtml(newPropName)}">
+                ${propNameChanged ? "変換" : "✓"}
+              </button>
+            </div>
+          `;
+
+          // プロパティ値
+          contentHtml += `<div class="property-values" style="margin-top: 4px;">`;
+          prop.values.forEach((valueObj) => {
+            // 値の変換（code.tsから受け取った値を使用）
+            const value = valueObj.value;
+            const newValue = valueObj.newValue;
+            const valueChanged = value !== newValue;
+
+            contentHtml += `
+              <div class="rename-item ${!valueChanged ? "completed" : ""}">
+                <div class="rename-label">値</div>
+                <div class="rename-values">
+                  <span class="current-value">${escapeHtml(value)}</span>
+                  <span class="arrow">→</span>
+                  <span class="new-value">${escapeHtml(newValue)}</span>
+                </div>
+                <button class="rename-btn" ${!valueChanged ? "disabled" : ""} data-action="rename-property-value" data-component-set-id="${component.id}" data-property-name="${escapeHtml(prop.name)}" data-old-value="${escapeHtml(value)}" data-new-value="${escapeHtml(newValue)}">
+                  ${valueChanged ? "変換" : "✓"}
+                </button>
+              </div>
+            `;
+          });
+          contentHtml += `</div></div>`;
+        });
+
+        contentHtml += `</div>`;
+      }
+
+      item.innerHTML = contentHtml;
+
+      // 変換ボタンのイベントリスナーを設定
+      item.querySelectorAll(".rename-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+
+          // disabledボタンは無視
+          if (btn.disabled) return;
+
+          const action = btn.dataset.action;
+
+          if (action === "rename-component-set") {
+            parent.postMessage(
+              {
+                pluginMessage: {
+                  type: "rename-component-set",
+                  id: btn.dataset.id,
+                  newName: btn.dataset.newName,
+                },
+              },
+              "*",
+            );
+          } else if (action === "rename-property") {
+            parent.postMessage(
+              {
+                pluginMessage: {
+                  type: "rename-property",
+                  componentSetId: btn.dataset.componentSetId,
+                  oldName: btn.dataset.oldName,
+                  newName: btn.dataset.newName,
+                },
+              },
+              "*",
+            );
+          } else if (action === "rename-property-value") {
+            parent.postMessage(
+              {
+                pluginMessage: {
+                  type: "rename-property-value",
+                  componentSetId: btn.dataset.componentSetId,
+                  propertyName: btn.dataset.propertyName,
+                  oldValue: btn.dataset.oldValue,
+                  newValue: btn.dataset.newValue,
+                },
+              },
+              "*",
+            );
+          }
+        });
+      });
+
+      item.onclick = (e) => {
+        if (e.target.classList.contains("rename-btn")) return;
+
+        // 選択状態をクリア
+        document.querySelectorAll(".component-item").forEach((el) => {
+          el.classList.remove("selected");
+        });
+        // クリックした項目を選択状態に
+        item.classList.add("selected");
+
+        parent.postMessage(
+          { pluginMessage: { type: "select-component", id: component.id } },
+          "*",
+        );
+      };
+
+      listElement.appendChild(item);
+    });
+
+    // 一括変換ボタンを追加
+    addBulkRenameButton(components);
+  }
+
+  // 一括変換ボタンを追加
+  function addBulkRenameButton(components) {
+    const listElement = document.getElementById("component-list");
+
+    // すべての変更項目を収集
+    const renameItems = [];
+
+    components.forEach((component) => {
+      // コンポーネントセット名（code.tsから受け取った値を使用）
+      const newComponentName = component.newName;
+      if (component.name !== newComponentName) {
+        renameItems.push({
+          type: "component-set",
+          componentSetId: component.id,
+          newName: newComponentName,
+        });
+      }
+
+      // バリアントプロパティ
+      if (component.variantProperties) {
+        component.variantProperties.forEach((prop) => {
+          // プロパティ名（code.tsから受け取った値を使用）
+          const newPropName = prop.newName;
+          if (prop.name !== newPropName) {
+            renameItems.push({
+              type: "property",
+              componentSetId: component.id,
+              oldName: prop.name,
+              newName: newPropName,
+            });
+          }
+
+          // プロパティ値（code.tsから受け取った値を使用）
+          prop.values.forEach((valueObj) => {
+            const value = valueObj.value;
+            const newValue = valueObj.newValue;
+            if (value !== newValue) {
+              renameItems.push({
+                type: "value",
+                componentSetId: component.id,
+                propertyName: prop.name,
+                oldValue: value,
+                newValue: newValue,
+              });
+            }
+          });
+        });
+      }
+    });
+
+    if (renameItems.length > 0) {
+      const bulkActions = document.createElement("div");
+      bulkActions.className = "bulk-actions";
+      bulkActions.innerHTML = `
+        <button class="bulk-rename-btn">
+          すべて変換 (${renameItems.length}項目)
+        </button>
+      `;
+
+      const btn = bulkActions.querySelector(".bulk-rename-btn");
+      btn.addEventListener("click", () => {
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "rename-all",
+              renameItems: renameItems,
+            },
+          },
+          "*",
+        );
+      });
+
+      listElement.appendChild(bulkActions);
+    }
+  }
+
+  // HTMLエスケープ
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // ボタンのイベントリスナー
+  document.getElementById("refresh").onclick = () => {
+    parent.postMessage({ pluginMessage: { type: "refresh" } }, "*");
+  };
+
+  document.getElementById("close").onclick = () => {
+    parent.postMessage({ pluginMessage: { type: "close" } }, "*");
+  };
 </script>

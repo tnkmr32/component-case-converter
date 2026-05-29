@@ -1,38 +1,349 @@
 /// <reference types="@figma/plugin-typings" />
 
-// This plugin will open a window to prompt the user to enter a number, and
-// it will then create that many rectangles on the screen.
+// このプラグインはページ内のコンポーネントセットとバリアント情報を一覧表示します
 
-// This file holds the main code for plugins. Code in this file has access to
-// the *figma document* via the figma global object.
-// You can access browser APIs in the <script> tag inside "ui.html" which has a
-// full browser environment (See https://www.figma.com/plugin-docs/how-plugins-run).
+// キャメルケースか判定する関数
+function isCamelCase(str: string): boolean {
+  return /^[a-z][a-zA-Z0-9]*$/.test(str);
+}
 
-// This shows the HTML page in "ui.html".
-figma.showUI(__html__);
+// パスカルケースか判定する関数
+function isPascalCase(str: string): boolean {
+  return /^[A-Z][a-zA-Z0-9]*$/.test(str);
+}
 
-// Calls to "parent.postMessage" from within the HTML page will trigger this
-// callback. The callback will be passed the "pluginMessage" property of the
-// posted message.
-figma.ui.onmessage = (msg: { type: string; count: number }) => {
-  // One way of distinguishing between different types of messages sent from
-  // your HTML page is to use an object with a "type" property like this.
-  if (msg.type === "create-shapes") {
-    // This plugin creates rectangles on the screen.
-    const numberOfRectangles = msg.count;
-    const nodes: SceneNode[] = [];
-    for (let i = 0; i < numberOfRectangles; i++) {
-      const rect = figma.createRectangle();
-      rect.x = i * 150;
-      rect.fills = [{ type: "SOLID", color: { r: 1, g: 0.5, b: 0 } }];
-      figma.currentPage.appendChild(rect);
-      nodes.push(rect);
-    }
-    figma.currentPage.selection = nodes;
-    figma.viewport.scrollAndZoomIntoView(nodes);
+// ケース変換関数
+function toCamelCase(str: string): string {
+  // 既にキャメルケースの場合はそのまま返す
+  if (isCamelCase(str)) {
+    return str;
   }
 
-  // Make sure to close the plugin when you're done. Otherwise the plugin will
-  // keep running, which shows the cancel button at the bottom of the screen.
-  figma.closePlugin();
+  // スペース、ハイフン、アンダースコアで分割
+  const words = str.split(/[\s-_]+/);
+  if (words.length === 0) return str;
+
+  // 最初の単語は小文字、残りは先頭大文字
+  return (
+    words[0].toLowerCase() +
+    words
+      .slice(1)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join("")
+  );
+}
+
+function toPascalCase(str: string): string {
+  // 既にパスカルケースの場合はそのまま返す
+  if (isPascalCase(str)) {
+    return str;
+  }
+
+  // スペース、ハイフン、アンダースコアで分割
+  const words = str.split(/[\s-_]+/);
+  if (words.length === 0) return str;
+
+  // すべての単語の先頭を大文字に
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join("");
+}
+
+interface VariantValue {
+  value: string;
+  newValue: string;
+}
+
+interface VariantProperty {
+  name: string;
+  newName: string;
+  values: VariantValue[];
+}
+
+interface VariantInfo {
+  id: string;
+  name: string;
+  properties: Record<string, string>;
+}
+
+interface ComponentInfo {
+  id: string;
+  name: string;
+  newName: string;
+  type: string;
+  variantProperties?: VariantProperty[];
+  variants?: VariantInfo[];
+}
+
+// UIを表示
+figma.showUI(__html__, { width: 500, height: 600 });
+
+// ページ内のコンポーネントセットを取得する関数
+function getComponents(): ComponentInfo[] {
+  const components: ComponentInfo[] = [];
+
+  // currentPage内のすべてのノードを検索（コンポーネントセットのみ）
+  const nodes = figma.currentPage.findAll((node) => {
+    return node.type === "COMPONENT_SET";
+  });
+
+  nodes.forEach((node) => {
+    const componentSet = node as ComponentSetNode;
+
+    const componentInfo: ComponentInfo = {
+      id: componentSet.id,
+      name: componentSet.name,
+      newName: toPascalCase(componentSet.name),
+      type: componentSet.type,
+    };
+
+    // バリアントプロパティの定義を取得
+    const variantProperties: VariantProperty[] = [];
+    const propertyDefs = componentSet.componentPropertyDefinitions;
+
+    for (const [propName, propDef] of Object.entries(propertyDefs)) {
+      if (propDef.type === "VARIANT") {
+        const values: VariantValue[] = (propDef.variantOptions || []).map(
+          (value) => ({
+            value: value,
+            newValue: toCamelCase(value),
+          }),
+        );
+
+        variantProperties.push({
+          name: propName,
+          newName: toCamelCase(propName),
+          values: values,
+        });
+      }
+    }
+
+    componentInfo.variantProperties = variantProperties;
+
+    // 各バリアント（子コンポーネント）の情報を取得
+    const variants: VariantInfo[] = [];
+    componentSet.children.forEach((child) => {
+      if (child.type === "COMPONENT") {
+        const component = child as ComponentNode;
+
+        // バリアントの名前からプロパティを解析
+        // 名前の形式: "Property1=Value1, Property2=Value2"
+        const properties: Record<string, string> = {};
+        const nameParts = component.name.split(",").map((s) => s.trim());
+
+        nameParts.forEach((part) => {
+          const [key, value] = part.split("=").map((s) => s.trim());
+          if (key && value) {
+            properties[key] = value;
+          }
+        });
+
+        variants.push({
+          id: component.id,
+          name: component.name,
+          properties,
+        });
+      }
+    });
+
+    componentInfo.variants = variants;
+
+    components.push(componentInfo);
+  });
+
+  return components;
+}
+
+// プラグイン起動時にコンポーネント一覧を送信
+const componentList = getComponents();
+figma.ui.postMessage({
+  type: "component-list",
+  components: componentList,
+});
+
+// 選択変更を監視
+figma.on("selectionchange", () => {
+  const selection = figma.currentPage.selection;
+  if (selection.length === 1) {
+    const selectedNode = selection[0];
+    if (selectedNode.type === "COMPONENT_SET") {
+      figma.ui.postMessage({
+        type: "selection-changed",
+        id: selectedNode.id,
+      });
+    }
+  }
+});
+
+// UIからのメッセージを処理
+figma.ui.onmessage = async (msg) => {
+  if (msg.type === "refresh") {
+    // コンポーネント一覧を再取得して送信
+    const componentList = getComponents();
+    figma.ui.postMessage({
+      type: "component-list",
+      components: componentList,
+    });
+  } else if (msg.type === "select-component") {
+    // コンポーネントを選択
+    const node = await figma.getNodeByIdAsync(msg.id);
+    if (node) {
+      figma.currentPage.selection = [node as SceneNode];
+      figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
+    }
+  } else if (msg.type === "rename-component-set") {
+    // コンポーネントセット名を変更
+    const node = await figma.getNodeByIdAsync(msg.id);
+    if (node && node.type === "COMPONENT_SET") {
+      node.name = msg.newName;
+      // 更新されたコンポーネント一覧を送信
+      const componentList = getComponents();
+      figma.ui.postMessage({
+        type: "component-list",
+        components: componentList,
+      });
+    }
+  } else if (msg.type === "rename-property") {
+    // バリアントプロパティ名を変更
+    const node = await figma.getNodeByIdAsync(msg.componentSetId);
+    if (node && node.type === "COMPONENT_SET") {
+      const componentSet = node as ComponentSetNode;
+
+      // すべての子コンポーネントの名前を変更
+      componentSet.children.forEach((child) => {
+        if (child.type === "COMPONENT") {
+          const component = child as ComponentNode;
+          // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
+          const nameParts = component.name.split(",").map((s) => s.trim());
+          const newNameParts = nameParts.map((part) => {
+            const [key, value] = part.split("=").map((s) => s.trim());
+            if (key === msg.oldName) {
+              return `${msg.newName}=${value}`;
+            }
+            return part;
+          });
+          component.name = newNameParts.join(", ");
+        }
+      });
+
+      // 更新されたコンポーネント一覧を送信
+      const componentList = getComponents();
+      figma.ui.postMessage({
+        type: "component-list",
+        components: componentList,
+      });
+    }
+  } else if (msg.type === "rename-property-value") {
+    // バリアントプロパティの値を変更
+    const node = await figma.getNodeByIdAsync(msg.componentSetId);
+    if (node && node.type === "COMPONENT_SET") {
+      const componentSet = node as ComponentSetNode;
+
+      // 該当する子コンポーネントの名前を変更
+      componentSet.children.forEach((child) => {
+        if (child.type === "COMPONENT") {
+          const component = child as ComponentNode;
+          // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
+          const nameParts = component.name.split(",").map((s) => s.trim());
+          const newNameParts = nameParts.map((part) => {
+            const [key, value] = part.split("=").map((s) => s.trim());
+            if (key === msg.propertyName && value === msg.oldValue) {
+              return `${key}=${msg.newValue}`;
+            }
+            return part;
+          });
+          component.name = newNameParts.join(", ");
+        }
+      });
+
+      // 更新されたコンポーネント一覧を送信
+      const componentList = getComponents();
+      figma.ui.postMessage({
+        type: "component-list",
+        components: componentList,
+      });
+    }
+  } else if (msg.type === "rename-all") {
+    // 一括リネーム - コンポーネントセットごとにグループ化して処理
+    const componentSets = new Map<string, any[]>();
+
+    // アイテムをコンポーネントセットごとにグループ化
+    msg.renameItems.forEach((item: any) => {
+      if (!componentSets.has(item.componentSetId)) {
+        componentSets.set(item.componentSetId, []);
+      }
+      componentSets.get(item.componentSetId)!.push(item);
+    });
+
+    // 各コンポーネントセットを処理
+    for (const [componentSetId, items] of componentSets) {
+      const node = await figma.getNodeByIdAsync(componentSetId);
+      if (!node || node.type !== "COMPONENT_SET") continue;
+
+      const componentSet = node as ComponentSetNode;
+
+      // 変更内容をマップに整理
+      const valueChanges = new Map<string, Map<string, string>>(); // propertyName -> oldValue -> newValue
+      const propertyNameChanges = new Map<string, string>(); // oldName -> newName
+      let newComponentSetName: string | null = null;
+
+      items.forEach((item: any) => {
+        if (item.type === "value") {
+          if (!valueChanges.has(item.propertyName)) {
+            valueChanges.set(item.propertyName, new Map());
+          }
+          valueChanges
+            .get(item.propertyName)!
+            .set(item.oldValue, item.newValue);
+        } else if (item.type === "property") {
+          propertyNameChanges.set(item.oldName, item.newName);
+        } else if (item.type === "component-set") {
+          newComponentSetName = item.newName;
+        }
+      });
+
+      // 各子コンポーネントの名前を一度に変更
+      componentSet.children.forEach((child) => {
+        if (child.type === "COMPONENT") {
+          const component = child as ComponentNode;
+          const nameParts = component.name.split(",").map((s) => s.trim());
+
+          // すべての変更を一度に適用
+          const newNameParts = nameParts.map((part) => {
+            const [key, value] = part.split("=").map((s) => s.trim());
+
+            // 1. 値を変更（元のプロパティ名を使用）
+            let newValue = value;
+            if (valueChanges.has(key) && valueChanges.get(key)!.has(value)) {
+              newValue = valueChanges.get(key)!.get(value)!;
+            }
+
+            // 2. プロパティ名を変更
+            let newKey = key;
+            if (propertyNameChanges.has(key)) {
+              newKey = propertyNameChanges.get(key)!;
+            }
+
+            return `${newKey}=${newValue}`;
+          });
+
+          component.name = newNameParts.join(", ");
+        }
+      });
+
+      // コンポーネントセット名を変更
+      if (newComponentSetName) {
+        componentSet.name = newComponentSetName;
+      }
+    }
+
+    // 更新されたコンポーネント一覧を送信
+    const componentList = getComponents();
+    figma.ui.postMessage({
+      type: "component-list",
+      components: componentList,
+    });
+  } else if (msg.type === "close") {
+    figma.closePlugin();
+  }
 };
