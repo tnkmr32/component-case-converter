@@ -310,14 +310,15 @@
               </div>
             `;
           // プロパティ値（VARIANTタイプのみ）
-          contentHtml += `<div class="property-values" style="margin-top: 4px;">`;
-          prop.values.forEach((valueObj) => {
-            // 値の変換（code.tsから受け取った値を使用）
-            const value = valueObj.value;
-            const newValue = valueObj.newValue;
-            const valueChanged = value !== newValue;
+          if (isVariantType && prop.variantOptions) {
+            contentHtml += `<div class="property-values" style="margin-top: 4px;">`;
+            prop.variantOptions.forEach((valueObj) => {
+              // 値の変換（code.tsから受け取った値を使用）
+              const value = valueObj.value;
+              const newValue = valueObj.newValue;
+              const valueChanged = value !== newValue;
 
-            contentHtml += `
+              contentHtml += `
                 <div class="rename-item ${!valueChanged ? "completed" : ""}">
                   <div class="rename-label">値</div>
                   <div class="rename-values">
@@ -330,8 +331,9 @@
                   </button>
                 </div>
               `;
-          });
-          contentHtml += `</div>`;
+            });
+            contentHtml += `</div>`;
+          }
           contentHtml += `</div>`;
         });
 
@@ -438,21 +440,21 @@
         component.variantProperties.forEach((prop) => {
           const isVariantType = prop.propertyType === "VARIANT";
 
-          // プロパティ名（VARIANTタイプのみ）
-          if (isVariantType) {
-            const newPropName = prop.newName;
-            if (prop.name !== newPropName) {
-              renameItems.push({
-                type: "property",
-                componentSetId: component.id,
-                propertyKey: prop.propertyKey,
-                oldName: prop.name,
-                newName: newPropName,
-              });
-            }
+          // プロパティ名（すべてのタイプ）
+          const newPropName = prop.newName;
+          if (prop.name !== newPropName) {
+            renameItems.push({
+              type: "property",
+              componentSetId: component.id,
+              propertyKey: prop.propertyKey,
+              oldName: prop.name,
+              newName: newPropName,
+            });
+          }
 
-            // プロパティ値（VARIANTタイプのみ）
-            prop.values.forEach((valueObj) => {
+          // プロパティ値（VARIANTタイプのみ）
+          if (isVariantType && prop.variantOptions) {
+            prop.variantOptions.forEach((valueObj) => {
               const value = valueObj.value;
               const newValue = valueObj.newValue;
               if (value !== newValue) {

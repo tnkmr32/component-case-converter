@@ -9,8 +9,9 @@ interface VariantProperty {
   name: string;
   newName: string;
   propertyKey: string; // Figma内部キー（#付きの場合もある）
-  propertyType: string; // VARIANT, BOOLEAN, TEXT, INSTANCE_SWAP
-  values: VariantValue[];
+  propertyType: "VARIANT" | "BOOLEAN" | "TEXT" | "INSTANCE_SWAP";
+  variantOptions?: VariantValue[]; // VARIANTタイプの選択肢
+  defaultValue?: string | boolean; // BOOLEAN, TEXTタイプのデフォルト値
 }
 
 interface ComponentInfo {
@@ -100,43 +101,36 @@ function getComponents(): ComponentInfo[] {
         propName = propKey.split("#")[0];
       }
 
-      let values: VariantValue[] = [];
+      let variantOptions: VariantValue[] | undefined = undefined;
+      let defaultValue: string | boolean | undefined = undefined;
 
       if (propDef.type === "VARIANT") {
         // VARIANTタイプ: 複数の選択肢を持つ
-        values = (propDef.variantOptions || []).map((value) => ({
+        variantOptions = (propDef.variantOptions || []).map((value) => ({
           value: value,
           newValue: toCamelCase(value),
         }));
       } else if (propDef.type === "BOOLEAN") {
-        // BOOLEANタイプ: True/Falseのデフォルト値を表示
-        const defaultValue = String(propDef.defaultValue || false);
-        values = [
-          {
-            value: defaultValue,
-            newValue: defaultValue.toLowerCase(),
-          },
-        ];
+        // BOOLEANタイプ: True/Falseのデフォルト値
+        defaultValue = propDef.defaultValue || false;
       } else if (propDef.type === "TEXT") {
-        // TEXTタイプ: デフォルト値を表示
-        const defaultValue = propDef.defaultValue || "";
-        values = [
-          {
-            value: defaultValue,
-            newValue: toCamelCase(defaultValue),
-          },
-        ];
+        // TEXTタイプ: デフォルト値
+        defaultValue = propDef.defaultValue || "";
       } else if (propDef.type === "INSTANCE_SWAP") {
-        // INSTANCE_SWAPタイプ: 値は表示しない（プロパティ名のみ）
-        values = [];
+        // INSTANCE_SWAPタイプ: 値は設定しない（プロパティ名のみ）
       }
 
       variantProperties.push({
         name: propName,
         newName: toCamelCase(propName),
         propertyKey: propKey, // 内部キーを保持
-        propertyType: propDef.type, // プロパティタイプを保持
-        values: values,
+        propertyType: propDef.type as
+          | "VARIANT"
+          | "BOOLEAN"
+          | "TEXT"
+          | "INSTANCE_SWAP", // プロパティタイプを保持
+        variantOptions: variantOptions,
+        defaultValue: defaultValue,
       });
     }
 
