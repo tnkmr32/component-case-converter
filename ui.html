@@ -196,7 +196,7 @@
 
 <script>
   // scriptタグ内でUIのロジックを実装
-  
+
   // メッセージを受信
   window.onmessage = (event) => {
     const msg = event.data.pluginMessage;
@@ -244,7 +244,6 @@
       let contentHtml = `
         <div class="component-name">
           ${escapeHtml(component.name)}
-          ${component.variants ? `<span class="variant-count">${component.variants.length}個のバリアント</span>` : ""}
         </div>
       `;
 
@@ -288,6 +287,7 @@
           // プロパティ名の変換（code.tsから受け取った値を使用）
           const newPropName = prop.newName;
           const propNameChanged = prop.name !== newPropName;
+          const isVariantType = prop.propertyType === "VARIANT";
 
           // プロパティ名
           contentHtml += `
@@ -297,20 +297,19 @@
 
           // プロパティ名の変換
           contentHtml += `
-            <div class="rename-item ${!propNameChanged ? "completed" : ""}">
-              <div class="rename-label">プロパティ名</div>
-              <div class="rename-values">
-                <span class="current-value">${escapeHtml(prop.name)}</span>
-                <span class="arrow">→</span>
-                <span class="new-value">${escapeHtml(newPropName)}</span>
+              <div class="rename-item ${!propNameChanged ? "completed" : ""}">
+                <div class="rename-label">プロパティ名</div>
+                <div class="rename-values">
+                  <span class="current-value">${escapeHtml(prop.name)}</span>
+                  <span class="arrow">→</span>
+                  <span class="new-value">${escapeHtml(newPropName)}</span>
+                </div>
+                <button class="rename-btn" ${!propNameChanged ? "disabled" : ""} data-action="rename-property" data-component-set-id="${component.id}" data-property-key="${escapeHtml(prop.propertyKey)}" data-old-name="${escapeHtml(prop.name)}" data-new-name="${escapeHtml(newPropName)}">
+                  ${propNameChanged ? "変換" : "✓"}
+                </button>
               </div>
-              <button class="rename-btn" ${!propNameChanged ? "disabled" : ""} data-action="rename-property" data-component-set-id="${component.id}" data-old-name="${escapeHtml(prop.name)}" data-new-name="${escapeHtml(newPropName)}">
-                ${propNameChanged ? "変換" : "✓"}
-              </button>
-            </div>
-          `;
-
-          // プロパティ値
+            `;
+          // プロパティ値（VARIANTタイプのみ）
           contentHtml += `<div class="property-values" style="margin-top: 4px;">`;
           prop.values.forEach((valueObj) => {
             // 値の変換（code.tsから受け取った値を使用）
@@ -319,20 +318,21 @@
             const valueChanged = value !== newValue;
 
             contentHtml += `
-              <div class="rename-item ${!valueChanged ? "completed" : ""}">
-                <div class="rename-label">値</div>
-                <div class="rename-values">
-                  <span class="current-value">${escapeHtml(value)}</span>
-                  <span class="arrow">→</span>
-                  <span class="new-value">${escapeHtml(newValue)}</span>
+                <div class="rename-item ${!valueChanged ? "completed" : ""}">
+                  <div class="rename-label">値</div>
+                  <div class="rename-values">
+                    <span class="current-value">${escapeHtml(value)}</span>
+                    <span class="arrow">→</span>
+                    <span class="new-value">${escapeHtml(newValue)}</span>
+                  </div>
+                  <button class="rename-btn" ${!valueChanged ? "disabled" : ""} data-action="rename-property-value" data-component-set-id="${component.id}" data-property-key="${escapeHtml(prop.propertyKey)}" data-property-name="${escapeHtml(prop.name)}" data-old-value="${escapeHtml(value)}" data-new-value="${escapeHtml(newValue)}">
+                    ${valueChanged ? "変換" : "✓"}
+                  </button>
                 </div>
-                <button class="rename-btn" ${!valueChanged ? "disabled" : ""} data-action="rename-property-value" data-component-set-id="${component.id}" data-property-name="${escapeHtml(prop.name)}" data-old-value="${escapeHtml(value)}" data-new-value="${escapeHtml(newValue)}">
-                  ${valueChanged ? "変換" : "✓"}
-                </button>
-              </div>
-            `;
+              `;
           });
-          contentHtml += `</div></div>`;
+          contentHtml += `</div>`;
+          contentHtml += `</div>`;
         });
 
         contentHtml += `</div>`;
@@ -367,6 +367,7 @@
                 pluginMessage: {
                   type: "rename-property",
                   componentSetId: btn.dataset.componentSetId,
+                  propertyKey: btn.dataset.propertyKey,
                   oldName: btn.dataset.oldName,
                   newName: btn.dataset.newName,
                 },
@@ -379,6 +380,7 @@
                 pluginMessage: {
                   type: "rename-property-value",
                   componentSetId: btn.dataset.componentSetId,
+                  propertyKey: btn.dataset.propertyKey,
                   propertyName: btn.dataset.propertyName,
                   oldValue: btn.dataset.oldValue,
                   newValue: btn.dataset.newValue,
@@ -434,31 +436,37 @@
       // バリアントプロパティ
       if (component.variantProperties) {
         component.variantProperties.forEach((prop) => {
-          // プロパティ名（code.tsから受け取った値を使用）
-          const newPropName = prop.newName;
-          if (prop.name !== newPropName) {
-            renameItems.push({
-              type: "property",
-              componentSetId: component.id,
-              oldName: prop.name,
-              newName: newPropName,
-            });
-          }
+          const isVariantType = prop.propertyType === "VARIANT";
 
-          // プロパティ値（code.tsから受け取った値を使用）
-          prop.values.forEach((valueObj) => {
-            const value = valueObj.value;
-            const newValue = valueObj.newValue;
-            if (value !== newValue) {
+          // プロパティ名（VARIANTタイプのみ）
+          if (isVariantType) {
+            const newPropName = prop.newName;
+            if (prop.name !== newPropName) {
               renameItems.push({
-                type: "value",
+                type: "property",
                 componentSetId: component.id,
-                propertyName: prop.name,
-                oldValue: value,
-                newValue: newValue,
+                propertyKey: prop.propertyKey,
+                oldName: prop.name,
+                newName: newPropName,
               });
             }
-          });
+
+            // プロパティ値（VARIANTタイプのみ）
+            prop.values.forEach((valueObj) => {
+              const value = valueObj.value;
+              const newValue = valueObj.newValue;
+              if (value !== newValue) {
+                renameItems.push({
+                  type: "value",
+                  componentSetId: component.id,
+                  propertyKey: prop.propertyKey,
+                  propertyName: prop.name,
+                  oldValue: value,
+                  newValue: newValue,
+                });
+              }
+            });
+          }
         });
       }
     });

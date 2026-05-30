@@ -8,13 +8,9 @@ interface VariantValue {
 interface VariantProperty {
   name: string;
   newName: string;
+  propertyKey: string; // Figma内部キー（#付きの場合もある）
+  propertyType: string; // VARIANT, BOOLEAN, TEXT, INSTANCE_SWAP
   values: VariantValue[];
-}
-
-interface VariantInfo {
-  id: string;
-  name: string;
-  properties: Record<string, string>;
 }
 
 interface ComponentInfo {
@@ -23,7 +19,6 @@ interface ComponentInfo {
   newName: string;
   type: string;
   variantProperties?: VariantProperty[];
-  variants?: VariantInfo[];
 }
 
 // キャメルケースか判定する関数
@@ -93,56 +88,59 @@ function getComponents(): ComponentInfo[] {
       type: componentSet.type,
     };
 
-    // バリアントプロパティの定義を取得
+    // バリアントプロパティの定義を取得（すべてのタイプを含む）
     const variantProperties: VariantProperty[] = [];
     const propertyDefs = componentSet.componentPropertyDefinitions;
 
-    for (const [propName, propDef] of Object.entries(propertyDefs)) {
-      if (propDef.type === "VARIANT") {
-        const values: VariantValue[] = (propDef.variantOptions || []).map(
-          (value) => ({
-            value: value,
-            newValue: toCamelCase(value),
-          }),
-        );
-
-        variantProperties.push({
-          name: propName,
-          newName: toCamelCase(propName),
-          values: values,
-        });
+    for (const [propKey, propDef] of Object.entries(propertyDefs)) {
+      // プロパティの表示名を取得
+      // TEXT、BOOLEAN、INSTANCE_SWAPタイプは "プロパティ名#ID" 形式なので、#の前を抽出
+      let propName = propKey;
+      if (propKey.includes("#")) {
+        propName = propKey.split("#")[0];
       }
+
+      let values: VariantValue[] = [];
+
+      if (propDef.type === "VARIANT") {
+        // VARIANTタイプ: 複数の選択肢を持つ
+        values = (propDef.variantOptions || []).map((value) => ({
+          value: value,
+          newValue: toCamelCase(value),
+        }));
+      } else if (propDef.type === "BOOLEAN") {
+        // BOOLEANタイプ: True/Falseのデフォルト値を表示
+        const defaultValue = String(propDef.defaultValue || false);
+        values = [
+          {
+            value: defaultValue,
+            newValue: defaultValue.toLowerCase(),
+          },
+        ];
+      } else if (propDef.type === "TEXT") {
+        // TEXTタイプ: デフォルト値を表示
+        const defaultValue = propDef.defaultValue || "";
+        values = [
+          {
+            value: defaultValue,
+            newValue: toCamelCase(defaultValue),
+          },
+        ];
+      } else if (propDef.type === "INSTANCE_SWAP") {
+        // INSTANCE_SWAPタイプ: 値は表示しない（プロパティ名のみ）
+        values = [];
+      }
+
+      variantProperties.push({
+        name: propName,
+        newName: toCamelCase(propName),
+        propertyKey: propKey, // 内部キーを保持
+        propertyType: propDef.type, // プロパティタイプを保持
+        values: values,
+      });
     }
 
     componentInfo.variantProperties = variantProperties;
-
-    // 各バリアント（子コンポーネント）の情報を取得
-    const variants: VariantInfo[] = [];
-    componentSet.children.forEach((child) => {
-      if (child.type === "COMPONENT") {
-        const component = child as ComponentNode;
-
-        // バリアントの名前からプロパティを解析
-        // 名前の形式: "Property1=Value1, Property2=Value2"
-        const properties: Record<string, string> = {};
-        const nameParts = component.name.split(",").map((s) => s.trim());
-
-        nameParts.forEach((part) => {
-          const [key, value] = part.split("=").map((s) => s.trim());
-          if (key && value) {
-            properties[key] = value;
-          }
-        });
-
-        variants.push({
-          id: component.id,
-          name: component.name,
-          properties,
-        });
-      }
-    });
-
-    componentInfo.variants = variants;
 
     components.push(componentInfo);
   });
@@ -247,12 +245,12 @@ figma.ui.onmessage = async (msg) => {
     // バリアントプロパティ名を変更
     const node = await figma.getNodeByIdAsync(msg.componentSetId);
     if (node && node.type === "COMPONENT_SET") {
-      const componentSet = node as ComponentSetNode;
+      const componentSet = node;
 
       // すべての子コンポーネントの名前を変更
       componentSet.children.forEach((child) => {
         if (child.type === "COMPONENT") {
-          const component = child as ComponentNode;
+          const component = child;
           // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
           const nameParts = component.name.split(",").map((s) => s.trim());
           const newNameParts = nameParts.map((part) => {
@@ -277,12 +275,12 @@ figma.ui.onmessage = async (msg) => {
     // バリアントプロパティの値を変更
     const node = await figma.getNodeByIdAsync(msg.componentSetId);
     if (node && node.type === "COMPONENT_SET") {
-      const componentSet = node as ComponentSetNode;
+      const componentSet = node;
 
       // 該当する子コンポーネントの名前を変更
       componentSet.children.forEach((child) => {
         if (child.type === "COMPONENT") {
-          const component = child as ComponentNode;
+          const component = child;
           // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
           const nameParts = component.name.split(",").map((s) => s.trim());
           const newNameParts = nameParts.map((part) => {
@@ -320,7 +318,7 @@ figma.ui.onmessage = async (msg) => {
       const node = await figma.getNodeByIdAsync(componentSetId);
       if (!node || node.type !== "COMPONENT_SET") continue;
 
-      const componentSet = node as ComponentSetNode;
+      const componentSet = node;
 
       // 変更内容をマップに整理
       const valueChanges = new Map<string, Map<string, string>>(); // propertyName -> oldValue -> newValue
@@ -345,7 +343,7 @@ figma.ui.onmessage = async (msg) => {
       // 各子コンポーネントの名前を一度に変更
       componentSet.children.forEach((child) => {
         if (child.type === "COMPONENT") {
-          const component = child as ComponentNode;
+          const component = child;
           const nameParts = component.name.split(",").map((s) => s.trim());
 
           // すべての変更を一度に適用
