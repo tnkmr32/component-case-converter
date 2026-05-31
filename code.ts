@@ -215,37 +215,50 @@ function renameComponentSetName(
   componentSet.name = newName;
 }
 
-// プロパティ名を変更する関数（VARIANTタイプのみ対応）
+// プロパティ名を変更する関数（すべてのタイプに対応）
 function renamePropertyName(
   componentSet: ComponentSetNode,
   propertyKey: string,
   oldName: string,
   newName: string,
 ): boolean {
-  // プロパティ定義を取得
-  const propertyDef = componentSet.componentPropertyDefinitions[propertyKey];
+  try {
+    // プロパティ定義を取得
+    const propertyDef = componentSet.componentPropertyDefinitions[propertyKey];
 
-  if (propertyDef && propertyDef.type === "VARIANT") {
-    // VARIANTタイプ: 子コンポーネントの名前を変更
-    componentSet.children.forEach((child) => {
-      if (child.type === "COMPONENT") {
-        const component = child;
-        // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
-        const nameParts = component.name.split(",").map((s) => s.trim());
-        const newNameParts = nameParts.map((part) => {
-          const [key, value] = part.split("=").map((s) => s.trim());
-          if (key === oldName) {
-            return `${newName}=${value}`;
-          }
-          return part;
-        });
-        component.name = newNameParts.join(", ");
-      }
+    if (!propertyDef) {
+      return false;
+    }
+
+    // editComponentPropertyメソッドで名前を変更
+    componentSet.editComponentProperty(propertyKey, {
+      name: newName,
     });
+
+    // VARIANTタイプの場合のみ、子コンポーネントの名前も手動で更新
+    if (propertyDef.type === "VARIANT") {
+      componentSet.children.forEach((child) => {
+        if (child.type === "COMPONENT") {
+          const component = child;
+          // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
+          const nameParts = component.name.split(",").map((s) => s.trim());
+          const newNameParts = nameParts.map((part) => {
+            const [key, value] = part.split("=").map((s) => s.trim());
+            if (key === oldName) {
+              return `${newName}=${value}`;
+            }
+            return part;
+          });
+          component.name = newNameParts.join(", ");
+        }
+      });
+    }
+
     return true;
+  } catch (error) {
+    console.error("プロパティ名の変更に失敗しました:", error);
+    return false;
   }
-  // BOOLEAN, TEXT, INSTANCE_SWAPタイプのプロパティ名変更はFigmaの内部実装上、安全に実行できません
-  return false;
 }
 
 // プロパティ値を変更する関数（VARIANTタイプのみ対応）
@@ -346,14 +359,21 @@ figma.ui.onmessage = async (msg) => {
 
       // 変更内容をマップに整理（プロパティ名と値の変更を同時に適用するため）
       const valueChanges = new Map<string, Map<string, string>>(); // propertyName -> oldValue -> newValue
-      const propertyNameChanges = new Map<string, string>(); // oldName -> newName
+      const propertyNameChanges = new Map<
+        string,
+        { oldName: string; newName: string; propertyKey: string }
+      >(); // propertyKey -> change info
       let newComponentSetName: string | null = null;
 
       items.forEach((item: any) => {
         if (item.type === "component-set") {
           newComponentSetName = item.newName;
         } else if (item.type === "property") {
-          propertyNameChanges.set(item.oldName, item.newName);
+          propertyNameChanges.set(item.propertyKey, {
+            oldName: item.oldName,
+            newName: item.newName,
+            propertyKey: item.propertyKey,
+          });
         } else if (item.type === "value") {
           if (!valueChanges.has(item.propertyName)) {
             valueChanges.set(item.propertyName, new Map());
@@ -369,35 +389,38 @@ figma.ui.onmessage = async (msg) => {
         renameComponentSetName(componentSet, newComponentSetName);
       }
 
-      // VARIANTタイプのプロパティ：子コンポーネントの名前を一度に変更
-      // （プロパティ名と値の変更を同時に適用）
+      // 1. まず値の変更を適用（元のプロパティ名を使用）
       componentSet.children.forEach((child) => {
         if (child.type === "COMPONENT") {
           const component = child;
           const nameParts = component.name.split(",").map((s) => s.trim());
 
-          // すべての変更を一度に適用
+          // 値の変更のみを適用
           const newNameParts = nameParts.map((part) => {
             const [key, value] = part.split("=").map((s) => s.trim());
 
-            // 1. 値を変更（元のプロパティ名を使用）
+            // 値を変更（元のプロパティ名を使用）
             let newValue = value;
             if (valueChanges.has(key) && valueChanges.get(key)!.has(value)) {
               newValue = valueChanges.get(key)!.get(value)!;
             }
 
-            // 2. プロパティ名を変更
-            let newKey = key;
-            if (propertyNameChanges.has(key)) {
-              newKey = propertyNameChanges.get(key)!;
-            }
-
-            return `${newKey}=${newValue}`;
+            return `${key}=${newValue}`;
           });
 
           component.name = newNameParts.join(", ");
         }
       });
+
+      // 2. 次にプロパティ名の変更を適用（renamePropertyNameを使用）
+      for (const [propertyKey, changeInfo] of propertyNameChanges) {
+        renamePropertyName(
+          componentSet,
+          changeInfo.propertyKey,
+          changeInfo.oldName,
+          changeInfo.newName,
+        );
+      }
     }
 
     // 更新されたコンポーネント一覧を送信

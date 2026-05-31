@@ -247,21 +247,6 @@
         </div>
       `;
 
-      // コンポーネントセット名の変換表示
-      contentHtml += `
-        <div class="rename-item ${!componentNameChanged ? "completed" : ""}">
-          <div class="rename-label">セット名</div>
-          <div class="rename-values">
-            <span class="current-value">${escapeHtml(component.name)}</span>
-            <span class="arrow">→</span>
-            <span class="new-value">${escapeHtml(newComponentName)}</span>
-          </div>
-          <button class="rename-btn" ${!componentNameChanged ? "disabled" : ""} data-action="rename-component-set" data-id="${component.id}" data-new-name="${escapeHtml(newComponentName)}">
-            ${componentNameChanged ? "変換" : "✓"}
-          </button>
-        </div>
-      `;
-
       // コンポーネントセット名の変換表示（変換が必要な場合のみ）
       if (componentNameChanged) {
         contentHtml += `
@@ -295,14 +280,8 @@
               <div class="property-name">${escapeHtml(prop.name)}</div>
           `;
 
-          // プロパティ名の変換（VARIANTタイプのみサポート）
-          const canRename = isVariantType && propNameChanged;
-          const buttonDisabled = !canRename;
-          const buttonText = !propNameChanged
-            ? "✓"
-            : !isVariantType
-              ? "非対応"
-              : "変換";
+          // プロパティ名の変換（すべてのタイプに対応）
+          const buttonText = propNameChanged ? "変換" : "✓";
 
           contentHtml += `
               <div class="rename-item ${!propNameChanged ? "completed" : ""}">
@@ -312,7 +291,7 @@
                   <span class="arrow">→</span>
                   <span class="new-value">${escapeHtml(newPropName)}</span>
                 </div>
-                <button class="rename-btn" ${buttonDisabled ? "disabled" : ""} data-action="rename-property" data-component-set-id="${component.id}" data-property-key="${escapeHtml(prop.propertyKey)}" data-old-name="${escapeHtml(prop.name)}" data-new-name="${escapeHtml(newPropName)}" title="${!isVariantType ? "Figmaの制約によりVARIANT以外のタイプは名前変更をサポートできません" : ""}">
+                <button class="rename-btn" ${!propNameChanged ? "disabled" : ""} data-action="rename-property" data-component-set-id="${component.id}" data-property-key="${escapeHtml(prop.propertyKey)}" data-old-name="${escapeHtml(prop.name)}" data-new-name="${escapeHtml(newPropName)}">
                   ${buttonText}
                 </button>
               </div>
@@ -448,9 +427,9 @@
         component.variantProperties.forEach((prop) => {
           const isVariantType = prop.propertyType === "VARIANT";
 
-          // プロパティ名（VARIANTタイプのみ）
+          // プロパティ名（すべてのタイプに対応）
           const newPropName = prop.newName;
-          if (isVariantType && prop.name !== newPropName) {
+          if (prop.name !== newPropName) {
             renameItems.push({
               type: "property",
               componentSetId: component.id,
