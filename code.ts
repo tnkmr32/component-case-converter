@@ -207,6 +207,72 @@ async function initialize() {
 // 初期化を実行
 initialize();
 
+// コンポーネントセット名を変更する関数
+function renameComponentSetName(
+  componentSet: ComponentSetNode,
+  newName: string,
+): void {
+  componentSet.name = newName;
+}
+
+// プロパティ名を変更する関数（VARIANTタイプのみ対応）
+function renamePropertyName(
+  componentSet: ComponentSetNode,
+  propertyKey: string,
+  oldName: string,
+  newName: string,
+): boolean {
+  // プロパティ定義を取得
+  const propertyDef = componentSet.componentPropertyDefinitions[propertyKey];
+
+  if (propertyDef && propertyDef.type === "VARIANT") {
+    // VARIANTタイプ: 子コンポーネントの名前を変更
+    componentSet.children.forEach((child) => {
+      if (child.type === "COMPONENT") {
+        const component = child;
+        // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
+        const nameParts = component.name.split(",").map((s) => s.trim());
+        const newNameParts = nameParts.map((part) => {
+          const [key, value] = part.split("=").map((s) => s.trim());
+          if (key === oldName) {
+            return `${newName}=${value}`;
+          }
+          return part;
+        });
+        component.name = newNameParts.join(", ");
+      }
+    });
+    return true;
+  }
+  // BOOLEAN, TEXT, INSTANCE_SWAPタイプのプロパティ名変更はFigmaの内部実装上、安全に実行できません
+  return false;
+}
+
+// プロパティ値を変更する関数（VARIANTタイプのみ対応）
+function renamePropertyValue(
+  componentSet: ComponentSetNode,
+  propertyName: string,
+  oldValue: string,
+  newValue: string,
+): void {
+  // 該当する子コンポーネントの名前を変更
+  componentSet.children.forEach((child) => {
+    if (child.type === "COMPONENT") {
+      const component = child;
+      // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
+      const nameParts = component.name.split(",").map((s) => s.trim());
+      const newNameParts = nameParts.map((part) => {
+        const [key, value] = part.split("=").map((s) => s.trim());
+        if (key === propertyName && value === oldValue) {
+          return `${key}=${newValue}`;
+        }
+        return part;
+      });
+      component.name = newNameParts.join(", ");
+    }
+  });
+}
+
 // UIからのメッセージを処理
 figma.ui.onmessage = async (msg) => {
   if (msg.type === "refresh") {
@@ -227,7 +293,7 @@ figma.ui.onmessage = async (msg) => {
     // コンポーネントセット名を変更
     const node = await figma.getNodeByIdAsync(msg.id);
     if (node && node.type === "COMPONENT_SET") {
-      node.name = msg.newName;
+      renameComponentSetName(node, msg.newName);
       // 更新されたコンポーネント一覧を送信
       const componentList = getComponents();
       figma.ui.postMessage({
@@ -239,32 +305,7 @@ figma.ui.onmessage = async (msg) => {
     // バリアントプロパティ名を変更（VARIANTタイプのみ対応）
     const node = await figma.getNodeByIdAsync(msg.componentSetId);
     if (node && node.type === "COMPONENT_SET") {
-      const componentSet = node;
-
-      // プロパティ定義を取得
-      const propertyDef =
-        componentSet.componentPropertyDefinitions[msg.propertyKey];
-
-      if (propertyDef && propertyDef.type === "VARIANT") {
-        // VARIANTタイプ: 子コンポーネントの名前を変更
-        componentSet.children.forEach((child) => {
-          if (child.type === "COMPONENT") {
-            const component = child;
-            // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
-            const nameParts = component.name.split(",").map((s) => s.trim());
-            const newNameParts = nameParts.map((part) => {
-              const [key, value] = part.split("=").map((s) => s.trim());
-              if (key === msg.oldName) {
-                return `${msg.newName}=${value}`;
-              }
-              return part;
-            });
-            component.name = newNameParts.join(", ");
-          }
-        });
-      }
-      // BOOLEAN, TEXT, INSTANCE_SWAPタイプのプロパティ名変更はFigmaの内部実装上、安全に実行できません
-
+      renamePropertyName(node, msg.propertyKey, msg.oldName, msg.newName);
       // 更新されたコンポーネント一覧を送信
       const componentList = getComponents();
       figma.ui.postMessage({
@@ -276,25 +317,7 @@ figma.ui.onmessage = async (msg) => {
     // バリアントプロパティの値を変更
     const node = await figma.getNodeByIdAsync(msg.componentSetId);
     if (node && node.type === "COMPONENT_SET") {
-      const componentSet = node;
-
-      // 該当する子コンポーネントの名前を変更
-      componentSet.children.forEach((child) => {
-        if (child.type === "COMPONENT") {
-          const component = child;
-          // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
-          const nameParts = component.name.split(",").map((s) => s.trim());
-          const newNameParts = nameParts.map((part) => {
-            const [key, value] = part.split("=").map((s) => s.trim());
-            if (key === msg.propertyName && value === msg.oldValue) {
-              return `${key}=${msg.newValue}`;
-            }
-            return part;
-          });
-          component.name = newNameParts.join(", ");
-        }
-      });
-
+      renamePropertyValue(node, msg.propertyName, msg.oldValue, msg.newValue);
       // 更新されたコンポーネント一覧を送信
       const componentList = getComponents();
       figma.ui.postMessage({
@@ -303,7 +326,7 @@ figma.ui.onmessage = async (msg) => {
       });
     }
   } else if (msg.type === "rename-all") {
-    // 一括リネーム - コンポーネントセットごとにグループ化して処理
+    // 一括リネーム - 個別処理関数を使用
     const componentSets = new Map<string, any[]>();
 
     // アイテムをコンポーネントセットごとにグループ化
@@ -321,29 +344,33 @@ figma.ui.onmessage = async (msg) => {
 
       const componentSet = node;
 
-      // 変更内容をマップに整理
+      // 変更内容をマップに整理（プロパティ名と値の変更を同時に適用するため）
       const valueChanges = new Map<string, Map<string, string>>(); // propertyName -> oldValue -> newValue
-      const propertyNameChanges = new Map<string, string>(); // oldName -> newName（VARIANTタイプのみ）
-      const propertyKeyMap = new Map<string, string>(); // oldName -> propertyKey
+      const propertyNameChanges = new Map<string, string>(); // oldName -> newName
       let newComponentSetName: string | null = null;
 
       items.forEach((item: any) => {
-        if (item.type === "value") {
+        if (item.type === "component-set") {
+          newComponentSetName = item.newName;
+        } else if (item.type === "property") {
+          propertyNameChanges.set(item.oldName, item.newName);
+        } else if (item.type === "value") {
           if (!valueChanges.has(item.propertyName)) {
             valueChanges.set(item.propertyName, new Map());
           }
           valueChanges
             .get(item.propertyName)!
             .set(item.oldValue, item.newValue);
-        } else if (item.type === "property") {
-          propertyNameChanges.set(item.oldName, item.newName);
-          propertyKeyMap.set(item.oldName, item.propertyKey);
-        } else if (item.type === "component-set") {
-          newComponentSetName = item.newName;
         }
       });
 
-      // VARIANTタイプのプロパティ: 各子コンポーネントの名前を一度に変更
+      // コンポーネントセット名を変更
+      if (newComponentSetName) {
+        renameComponentSetName(componentSet, newComponentSetName);
+      }
+
+      // VARIANTタイプのプロパティ：子コンポーネントの名前を一度に変更
+      // （プロパティ名と値の変更を同時に適用）
       componentSet.children.forEach((child) => {
         if (child.type === "COMPONENT") {
           const component = child;
@@ -371,11 +398,6 @@ figma.ui.onmessage = async (msg) => {
           component.name = newNameParts.join(", ");
         }
       });
-
-      // コンポーネントセット名を変更
-      if (newComponentSetName) {
-        componentSet.name = newComponentSetName;
-      }
     }
 
     // 更新されたコンポーネント一覧を送信
