@@ -241,22 +241,65 @@ figma.ui.onmessage = async (msg) => {
     if (node && node.type === "COMPONENT_SET") {
       const componentSet = node;
 
-      // すべての子コンポーネントの名前を変更
-      componentSet.children.forEach((child) => {
-        if (child.type === "COMPONENT") {
-          const component = child;
-          // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
-          const nameParts = component.name.split(",").map((s) => s.trim());
-          const newNameParts = nameParts.map((part) => {
-            const [key, value] = part.split("=").map((s) => s.trim());
-            if (key === msg.oldName) {
-              return `${msg.newName}=${value}`;
+      // プロパティ定義を取得
+      const propertyDef =
+        componentSet.componentPropertyDefinitions[msg.propertyKey];
+
+      if (propertyDef) {
+        if (propertyDef.type === "VARIANT") {
+          // VARIANTタイプ: 子コンポーネントの名前を変更
+          componentSet.children.forEach((child) => {
+            if (child.type === "COMPONENT") {
+              const component = child;
+              // "Prop1=Val1, Prop2=Val2" 形式の名前を解析して変更
+              const nameParts = component.name.split(",").map((s) => s.trim());
+              const newNameParts = nameParts.map((part) => {
+                const [key, value] = part.split("=").map((s) => s.trim());
+                if (key === msg.oldName) {
+                  return `${msg.newName}=${value}`;
+                }
+                return part;
+              });
+              component.name = newNameParts.join(", ");
             }
-            return part;
           });
-          component.name = newNameParts.join(", ");
+        } else {
+          // BOOLEAN, TEXT, INSTANCE_SWAPタイプ: プロパティを再作成し、子コンポーネントの参照を更新
+          const currentPropertyDef = Object.assign({}, propertyDef);
+          const oldPropertyKey = msg.propertyKey;
+
+          // 新しいプロパティを作成（新しい名前で）
+          const newPropertyKey = `${msg.newName}#${oldPropertyKey.split("#")[1] || Date.now()}`;
+          componentSet.componentPropertyDefinitions[newPropertyKey] =
+            currentPropertyDef;
+
+          // 各子コンポーネントのプロパティ参照を更新
+          componentSet.children.forEach((child) => {
+            if (child.type === "COMPONENT") {
+              const component = child;
+              const propRefs = component.componentPropertyReferences as any;
+
+              if (propRefs && propRefs[oldPropertyKey]) {
+                // 古い参照を新しいキーにコピー
+                component.componentPropertyReferences = Object.assign(
+                  {},
+                  propRefs,
+                  {
+                    [newPropertyKey]: propRefs[oldPropertyKey],
+                  },
+                );
+                // 古い参照を削除
+                delete (component.componentPropertyReferences as any)[
+                  oldPropertyKey
+                ];
+              }
+            }
+          });
+
+          // 古いプロパティを削除
+          delete componentSet.componentPropertyDefinitions[oldPropertyKey];
         }
-      });
+      }
 
       // 更新されたコンポーネント一覧を送信
       const componentList = getComponents();
@@ -317,6 +360,7 @@ figma.ui.onmessage = async (msg) => {
       // 変更内容をマップに整理
       const valueChanges = new Map<string, Map<string, string>>(); // propertyName -> oldValue -> newValue
       const propertyNameChanges = new Map<string, string>(); // oldName -> newName
+      const propertyKeyMap = new Map<string, string>(); // oldName -> propertyKey
       let newComponentSetName: string | null = null;
 
       items.forEach((item: any) => {
@@ -329,12 +373,70 @@ figma.ui.onmessage = async (msg) => {
             .set(item.oldValue, item.newValue);
         } else if (item.type === "property") {
           propertyNameChanges.set(item.oldName, item.newName);
+          propertyKeyMap.set(item.oldName, item.propertyKey);
         } else if (item.type === "component-set") {
           newComponentSetName = item.newName;
         }
       });
 
-      // 各子コンポーネントの名前を一度に変更
+      // BOOLEAN, TEXT, INSTANCE_SWAPタイプのプロパティ名を変更
+      const propertyKeyUpdates = new Map<string, string>(); // oldKey -> newKey
+
+      for (const [oldName, newName] of propertyNameChanges) {
+        const propertyKey = propertyKeyMap.get(oldName);
+        if (!propertyKey) continue;
+
+        const propertyDef =
+          componentSet.componentPropertyDefinitions[propertyKey];
+        if (!propertyDef) continue;
+
+        if (
+          propertyDef.type === "BOOLEAN" ||
+          propertyDef.type === "TEXT" ||
+          propertyDef.type === "INSTANCE_SWAP"
+        ) {
+          // 現在の設定を保存
+          const currentPropertyDef = Object.assign({}, propertyDef);
+
+          // 新しいプロパティを作成（新しい名前で）
+          const newPropertyKey = `${newName}#${propertyKey.split("#")[1] || Date.now()}`;
+          componentSet.componentPropertyDefinitions[newPropertyKey] =
+            currentPropertyDef;
+
+          // 更新マップに記録
+          propertyKeyUpdates.set(propertyKey, newPropertyKey);
+        }
+      }
+
+      // 子コンポーネントのプロパティ参照を更新
+      if (propertyKeyUpdates.size > 0) {
+        componentSet.children.forEach((child) => {
+          if (child.type === "COMPONENT") {
+            const component = child;
+            const propRefs = component.componentPropertyReferences as any;
+
+            if (propRefs) {
+              const newPropRefs = Object.assign({}, propRefs);
+
+              for (const [oldKey, newKey] of propertyKeyUpdates) {
+                if (propRefs[oldKey]) {
+                  newPropRefs[newKey] = propRefs[oldKey];
+                  delete newPropRefs[oldKey];
+                }
+              }
+
+              component.componentPropertyReferences = newPropRefs;
+            }
+          }
+        });
+      }
+
+      // 古いプロパティを削除
+      for (const [oldKey] of propertyKeyUpdates) {
+        delete componentSet.componentPropertyDefinitions[oldKey];
+      }
+
+      // VARIANTタイプのプロパティ: 各子コンポーネントの名前を一度に変更
       componentSet.children.forEach((child) => {
         if (child.type === "COMPONENT") {
           const component = child;
@@ -350,10 +452,17 @@ figma.ui.onmessage = async (msg) => {
               newValue = valueChanges.get(key)!.get(value)!;
             }
 
-            // 2. プロパティ名を変更
+            // 2. プロパティ名を変更（VARIANTタイプのみ）
             let newKey = key;
             if (propertyNameChanges.has(key)) {
-              newKey = propertyNameChanges.get(key)!;
+              const propertyKey = propertyKeyMap.get(key);
+              if (propertyKey) {
+                const propertyDef =
+                  componentSet.componentPropertyDefinitions[propertyKey];
+                if (propertyDef && propertyDef.type === "VARIANT") {
+                  newKey = propertyNameChanges.get(key)!;
+                }
+              }
             }
 
             return `${newKey}=${newValue}`;
