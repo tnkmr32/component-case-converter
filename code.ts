@@ -39,8 +39,8 @@ function toCamelCase(str: string): string {
     return str;
   }
 
-  // スペース、ハイフン、アンダースコアで分割
-  const words = str.split(/[\s-_]+/);
+  // スペース、ハイフン、アンダースコア、コロンで分割
+  const words = str.split(/[\s-_:]+/);
   if (words.length === 0) return str;
 
   // 最初の単語は小文字、残りは先頭大文字
