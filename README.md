@@ -1,40 +1,62 @@
-Below are the steps to get your plugin running. You can also find instructions at:
+# Component Case Converter
 
-  https://www.figma.com/plugin-docs/plugin-quickstart-guide/
+Figma のコンポーネントセットとバリアントプロパティの命名規則を簡単に変換できるプラグインです。
 
-This plugin template uses Typescript and NPM, two standard tools in creating JavaScript applications.
+## 機能
 
-First, download Node.js which comes with NPM. This will allow you to install TypeScript and other
-libraries. You can find the download link here:
+- **コンポーネントセット名の変換**: コンポーネントセット名を PascalCase に自動変換
+- **プロパティ名の変換**: バリアントプロパティ名を camelCase に変換
+- **プロパティ値の変換**: バリアントの選択肢の値を camelCase に変換
+- **複数プロパティタイプに対応**: VARIANT、BOOLEAN、TEXT、INSTANCE_SWAP プロパティをサポート
+- **リアルタイム更新**: ページ内のコンポーネント変更を自動検知して一覧を更新
+- **選択機能**: クリックでコンポーネントをFigma上で選択可能
 
-  https://nodejs.org/en/download/
+## スクリーンショット
 
-Next, install TypeScript using the command:
+![プラグインのスクリーンショット](images/screenshot.png)
 
-  npm install -g typescript
+## 使い方
 
-Finally, in the directory of your plugin, get the latest type definitions for the plugin API by running:
+1. Figma でプラグインを起動
+2. 現在のページにあるコンポーネントセット一覧が表示されます
+3. 変換後の名前を確認し、「すべて変換」ボタンで一括変換
+4. 個別に変更したい場合は、表示されている変換後の名前を確認して「変換」ボタンで個別変換
 
-  npm install --save-dev @figma/plugin-typings
+## 開発環境のセットアップ
 
-If you are familiar with JavaScript, TypeScript will look very familiar. In fact, valid JavaScript code
-is already valid Typescript code.
+### 必要なもの
 
-TypeScript adds type annotations to variables. This allows code editors such as Visual Studio Code
-to provide information about the Figma API while you are writing code, as well as help catch bugs
-you previously didn't notice.
+- Node.js と npm
+- TypeScript
+- Visual Studio Code（推奨）
 
-For more information, visit https://www.typescriptlang.org/
+### セットアップ手順
 
-Using TypeScript requires a compiler to convert TypeScript (code.ts) into JavaScript (code.js)
-for the browser to run.
+1. Node.js をインストール:
+   - https://nodejs.org/en/download/
 
-We recommend writing TypeScript code using Visual Studio code:
+2. 依存関係をインストール:
+   ```bash
+   npm ci
+   ```
 
-1. Download Visual Studio Code if you haven't already: https://code.visualstudio.com/.
-2. Open this directory in Visual Studio Code.
-3. Compile TypeScript to JavaScript: Run the "Terminal > Run Build Task..." menu item,
-    then select "npm: watch". You will have to do this again every time
-    you reopen Visual Studio Code.
+### 開発方法
 
-That's it! Visual Studio Code will regenerate the JavaScript file every time you save.
+1. Visual Studio Code でこのディレクトリを開く
+2. ビルドタスクを実行: `Terminal > Run Build Task...` から `npm: watch` を選択
+3. TypeScript のコードを編集すると、自動的に JavaScript にコンパイルされます
+
+### ファイル構成
+
+- `code.ts`: プラグインのメインロジック
+- `ui.html`: プラグインの UI
+- `manifest.json`: プラグインの設定ファイル
+
+## 技術詳細
+
+このプラグインは TypeScript で記述されており、以下の機能を実装しています:
+
+- コンポーネントセットとそのプロパティの自動検出
+- ケース変換ロジック（camelCase / PascalCase）
+- Figma Document Change API によるリアルタイム監視
+- コンポーネントプロパティの一括編集
